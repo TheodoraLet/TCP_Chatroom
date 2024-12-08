@@ -118,15 +118,6 @@ int main(void)
             s, sizeof s);
         printf("server: got connection from %s\n", s);
 
-        //if (!fork()) { // this is the child process
-        //    close(sockfd); // child doesn't need the listener
-        //    if (send(new_fd, "Hello, world!", 13, 0) == -1)
-        //        perror("send");
-        //    close(new_fd);
-        //    exit(0);
-        //}
-        //close(new_fd);  // parent doesn't need this
-
         while(1)
         {
             if((numbytes=recv(new_fd,buf,MAXDATASIZE,0))==-1)
