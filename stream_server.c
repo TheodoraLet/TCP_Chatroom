@@ -10,12 +10,17 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/poll.h>
+#include <fcntl.h>
 
 #define PORT "3490"  // the port users will be connecting to
 
 #define BACKLOG 10   // how many pending connections queue will hold
 
 #define MAXDATASIZE 100
+
+#define max_chat_users 100
+
 
 void sigchld_handler(int s)
 {
@@ -40,7 +45,7 @@ void *get_in_addr(struct sockaddr *sa)
 
 int main(void)
 {
-    int sockfd, new_fd,numbytes;  // listen on sock_fd, new connection on new_fd
+    int listen_fd=-1; int numbytes;  // listen on sock_fd, new connection on new_fd
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
@@ -49,6 +54,10 @@ int main(void)
     char s[INET6_ADDRSTRLEN];
     int rv;
     char buf[MAXDATASIZE];
+    //new_fd* stack=(new_fd*)malloc(sizeof(new_fd)*max_chat_users);
+    //int head=0; int tail=0;
+    struct pollfd fds[200];
+    int new_fd=-1;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -62,20 +71,20 @@ int main(void)
 
     // loop through all the results and bind to the first we can
     for(p = servinfo; p != NULL; p = p->ai_next) {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+        if ((listen_fd = socket(p->ai_family, p->ai_socktype,
                 p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
         }
 
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
+        if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes,
                 sizeof(int)) == -1) {
             perror("setsockopt");
             exit(1);
         }
 
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockfd);
+        if (bind(listen_fd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(listen_fd);
             perror("server: bind");
             continue;
         }
@@ -90,49 +99,111 @@ int main(void)
         exit(1);
     }
 
-    if (listen(sockfd, BACKLOG) == -1) {
+    if (listen(listen_fd, BACKLOG) == -1) {
         perror("listen");
         exit(1);
     }
 
-    sa.sa_handler = sigchld_handler; // reap all dead processes
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
-        perror("sigaction");
-        exit(1);
-    }
+    fcntl(listen_fd,F_SETFL,O_NONBLOCK);
 
-    printf("server: waiting for connections...\n");
+    // sa.sa_handler = sigchld_handler; // reap all dead processes
+    // sigemptyset(&sa.sa_mask);
+    // sa.sa_flags = SA_RESTART;
+    // if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+    //     perror("sigaction");
+    //     exit(1);
+    // }
 
-    //while(1) {  // main accept() loop
-        sin_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-        if (new_fd == -1) {
-            perror("accept");
-            //continue;
-        }
 
-        inet_ntop(their_addr.ss_family,
-            get_in_addr((struct sockaddr *)&their_addr),
-            s, sizeof s);
-        printf("server: got connection from %s\n", s);
+    memset(fds,0,sizeof(fds));
+    fds[0].fd=listen_fd;
+    fds[0].events=POLLIN;
+    int timeout=-10;
+    int nfds=1;
+    /////////////////////////////////////////
+    printf("server waiting for connections\n");
 
-        while(1)
+    while(1)
+    {
+        int rc=poll(fds,nfds,timeout);
+
+        if(rc<0) {perror("poll failed"); break;}
+        
+        int currentsize=nfds;
+
+        for(int i=0;i<currentsize;i++)
         {
-            if((numbytes=recv(new_fd,buf,MAXDATASIZE,0))==-1)
+            //printf("current size is %d\n",currentsize);
+            if(fds[i].revents==0)
             {
-                perror("recv");
-                exit(1);
-            }
+                continue;
+            
+            }else if(fds[i].revents!=POLLIN)
+            {
+                printf("Error revents= %d \n",fds[i].revents);
+                break;
 
-            buf[numbytes]='\0';
-            printf("client sent: %s\n",buf);
-            memset(buf,'\0',sizeof(char)*(numbytes));
+            }else if(fds[i].fd==listen_fd)
+            {
+                //printf("got inside listen\n");
+                
+                do{
+                    new_fd=accept(listen_fd,NULL,NULL);
+
+                    if(new_fd==-1)
+                    {
+                        if(errno!=EWOULDBLOCK)
+                        {
+                            perror("accept failed");
+                        }
+
+                        printf("got out of accept\n");
+                        break;
+                    }
+
+                    printf("Adding new connection %d\n",new_fd);
+                    fds[nfds].fd=new_fd;
+                    fds[nfds].events=POLLIN;
+                    nfds++;
+                    fcntl(fds[nfds].fd,F_SETFL,O_NONBLOCK);
+
+                }while(new_fd!=-1);
+
+            }else{
+                numbytes=recv(fds[i].fd,buf,MAXDATASIZE,0);
+                buf[numbytes]='\0';
+                printf("received %s\n",buf);
+
+                if(numbytes<0)
+                {
+                    perror("recv error");
+                    break;
+                }else if(numbytes==0)
+                {
+                    printf("client closed connection\n");
+                    close(fds[i].fd);
+                    fds[i].fd=-1;
+                    break;
+                }else{
+                    //printf("got inside send\n");
+                    for(int j=1;j<nfds;j++)
+                    {
+                     rc=send(fds[j].fd,buf,numbytes,0);
+                    if(rc<0)
+                    {
+                       perror("recv");
+                       printf("error: %d\n",errno);
+                    }else if(rc==0)
+                    {
+                       printf("client has closed\n");
+                    }
+                    }
+                }
+            }
+            memset(buf,'\0',sizeof(char)*(MAXDATASIZE));
         }
 
-
-    //}
+    }
 
     return 0;
 }

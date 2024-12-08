@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/poll.h>
+#include <fcntl.h>
 
 #include <arpa/inet.h>
 
@@ -26,37 +28,17 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-char* sh_read()
-{
-    char* buffer=(char*)malloc(sizeof(char)*MAXDATASIZE);
-    int len=0;
-    while(1)
-    {
-        int res=scanf("%c",buffer+(len));
-        if(res==1)
-        {
-            if(buffer[len]=='\n')
-            {
-                buffer[len]='\0';
-                return buffer;
-            }else if(buffer[len-1]==MAXDATASIZE)
-            {
-                buffer=realloc(buffer,2*MAXDATASIZE);
-            }
-        }
-        len++;
-    }
-
-    return NULL;
-}
 
 int main(int argc, char *argv[])
 {
-    int sockfd, numbytes;  
+    int sockfd, numbytes, r_numbytes;
     //char* buf=(char*)malloc(sizeof(char)*MAXDATASIZE);
     struct addrinfo hints, *servinfo, *p;
     int rv;
     char s[INET6_ADDRSTRLEN];
+    char buf[MAXDATASIZE];
+    char rbuf[MAXDATASIZE];
+    struct pollfd fds[2];
 
     if (argc != 2) {
         fprintf(stderr,"usage: client hostname\n");
@@ -100,21 +82,41 @@ int main(int argc, char *argv[])
 
     freeaddrinfo(servinfo); // all done with this structure
 
+    fds[0].fd=STDIN_FILENO;
+    fds[0].events=POLLIN;
+
+    fds[1].fd=sockfd;
+    fds[1].events= POLLIN;
+    
 
     while(1)
     {
-        //memset(buf,'\0',sizeof(char)*(MAXDATASIZE));
-        char* buf=sh_read();
-
-        //printf("i typed %s\n",buf);
-
-        if(numbytes=send(sockfd,buf,strlen(buf),0)==-1)
+        int rc=poll(fds,2,-10);
+        if(rc<0)
         {
-            perror("send");
-            exit(1);
+         perror("poll failed");
+         break;
         }
 
-        free(buf);
+        if(fds[1].revents & POLLIN)
+        {
+            r_numbytes=recv(sockfd,rbuf,MAXDATASIZE-1,0);
+            if(r_numbytes>=0)
+            printf("received: %s\n",rbuf);
+            memset(rbuf,'\0',sizeof(char)*(MAXDATASIZE));
+        
+        }else if(fds[0].revents & POLLIN)
+        {
+            fgets(buf,MAXDATASIZE,stdin);
+            //printf("fgets got %s\n",buf);
+            if(numbytes=send(sockfd,buf,strlen(buf),0)==-1)
+            {
+                perror("send");
+                exit(1);
+            }
+            memset(buf,'\0',sizeof(char)*(MAXDATASIZE));
+        }
+       
     }
 
     close(sockfd);
