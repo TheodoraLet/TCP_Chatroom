@@ -43,6 +43,7 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
+
 int main(void)
 {
     int listen_fd=-1; int numbytes;  // listen on sock_fd, new connection on new_fd
@@ -58,6 +59,7 @@ int main(void)
     //int head=0; int tail=0;
     struct pollfd fds[200];
     int new_fd=-1;
+    struct addrinfo* con_info=(struct addrinfo*)malloc(sizeof(struct addrinfo)*200);
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -120,6 +122,7 @@ int main(void)
     fds[0].events=POLLIN;
     int timeout=-10;
     int nfds=1;
+    int cfds=1;
     /////////////////////////////////////////
     printf("server waiting for connections\n");
 
@@ -148,7 +151,11 @@ int main(void)
                 //printf("got inside listen\n");
                 
                 do{
-                    new_fd=accept(listen_fd,NULL,NULL);
+                    socklen_t sin_size=sizeof(struct sockaddr_storage);
+                    con_info[cfds].ai_addr=(struct sockaddr*)malloc(sizeof(struct sockaddr));
+                    con_info[cfds].ai_family=AF_INET;
+                    con_info[cfds].ai_socktype=SOCK_STREAM;
+                    new_fd=accept(listen_fd,(struct sockaddr*)con_info[cfds].ai_addr,&sin_size);
 
                     if(new_fd==-1)
                     {
@@ -161,11 +168,15 @@ int main(void)
                         break;
                     }
 
-                    printf("Adding new connection %d\n",new_fd);
+                    if(!(inet_ntop(con_info[cfds].ai_family,get_in_addr(con_info[cfds].ai_addr),s, sizeof s)))
+                    printf("Error: %s \n",strerror(errno));
+
+                    printf("IP added : %s \n",s);
+                    cfds++;
                     fds[nfds].fd=new_fd;
                     fds[nfds].events=POLLIN;
-                    nfds++;
                     fcntl(fds[nfds].fd,F_SETFL,O_NONBLOCK);
+                    nfds++;
 
                 }while(new_fd!=-1);
 
@@ -188,15 +199,17 @@ int main(void)
                     //printf("got inside send\n");
                     for(int j=1;j<nfds;j++)
                     {
-                     rc=send(fds[j].fd,buf,numbytes,0);
-                    if(rc<0)
-                    {
-                       perror("recv");
-                       printf("error: %d\n",errno);
-                    }else if(rc==0)
-                    {
-                       printf("client has closed\n");
-                    }
+                        if(i==j) continue;
+
+                        rc=send(fds[j].fd,buf,numbytes,0);
+                        if(rc<0)
+                        {
+                           perror("recv");
+                           printf("error: %d\n",errno);
+                        }else if(rc==0)
+                        {
+                           printf("client has closed\n");
+                        }
                     }
                 }
             }
