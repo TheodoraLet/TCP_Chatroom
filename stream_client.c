@@ -102,7 +102,7 @@ int main(int argc, char *argv[])
         {
             r_numbytes=recv(sockfd,rbuf,MAXDATASIZE-1,0);
             if(r_numbytes>=0)
-            printf("received: %s\n",rbuf);
+            printf("%s\n",rbuf);
             memset(rbuf,'\0',sizeof(char)*(MAXDATASIZE));
         
         }else if(fds[0].revents & POLLIN)
