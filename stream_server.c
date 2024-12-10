@@ -59,6 +59,8 @@ typedef struct passwords
 }passwords;
 
 char* add_name(char* buf,char* login);
+void login_user(int index,sock_info* sock,char* buf,passwords* pasw);
+void password_storage(passwords* pasw,int size);
 
 int main(void)
 {
@@ -71,8 +73,6 @@ int main(void)
     char s[INET6_ADDRSTRLEN];
     int rv;
     char* buf=(char*)malloc(sizeof(char)*MAXDATASIZE);
-    //new_fd* stack=(new_fd*)malloc(sizeof(new_fd)*max_chat_users);
-    //int head=0; int tail=0;
     sock_info* sock=(sock_info*)malloc(sizeof(sock_info));
     sock->fds=(struct pollfd*)malloc(sizeof(struct pollfd)*200);
     int new_fd=-1;
@@ -81,12 +81,14 @@ int main(void)
     sock->login_cred=(char**)malloc(sizeof(char*)*200);
     memset(sock->verified,false,sizeof(sock->verified));
     passwords* pasw=(passwords*)malloc(sizeof(passwords)*200);
-    pasw[0].pass=(char*)malloc(sizeof(char)*(strlen("user1,123")+1));
-    strcpy(pasw[0].pass,"user1,123");
-    pasw[0].used=false;
-    pasw[1].pass=(char*)malloc(sizeof(char)*(strlen("user2,345")+1));
-    strcpy(pasw[1].pass,"user2,345");
-    pasw[1].used=false;
+    password_storage(pasw,200);
+    // passwords* pasw=(passwords*)malloc(sizeof(passwords)*200);
+    // pasw[0].pass=(char*)malloc(sizeof(char)*(strlen("user1,123")+1));
+    // strcpy(pasw[0].pass,"user1,123");
+    // pasw[0].used=false;
+    // pasw[1].pass=(char*)malloc(sizeof(char)*(strlen("user2,345")+1));
+    // strcpy(pasw[1].pass,"user2,345");
+    // pasw[1].used=false;
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -149,7 +151,7 @@ int main(void)
     sock->fds[0].events=POLLIN;
     int timeout=-10;
     int nfds=1;
-    //int cfds=1;
+    
     /////////////////////////////////////////
     printf("server waiting for connections\n");
 
@@ -204,7 +206,6 @@ int main(void)
                     if(!(inet_ntop(sock->con_info[nfds].ai_family,get_in_addr(sock->con_info[nfds].ai_addr),s, sizeof s)))
                     printf("Error: %s \n",strerror(errno));
                     printf("IP added : %s \n",s);
-                    //cfds++;
                     sock->fds[nfds].fd=new_fd;
                     sock->fds[nfds].events=POLLIN;
                     fcntl(sock->fds[nfds].fd,F_SETFL,O_NONBLOCK);
@@ -233,35 +234,8 @@ int main(void)
                     {
                         if(sock->verified[i]==false)
                         {
-                            for(int k=0;k<200;k++)
-                            {
-                                if(pasw[k].pass==NULL)
-                                continue;
-
-                                if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==false)
-                                {
-                                    printf("found the right password\n");
-                                    sock->verified[i]=true;
-                                    numbytes=send(sock->fds[i].fd,"Access Provided",15,0);
-                                    pasw[k].used=true;
-                                    sock->login_cred[i]=(char*)malloc(sizeof(char)*(strlen(pasw[k].pass)+1));
-                                    strcpy(sock->login_cred[i],pasw[k].pass);
-                                    break;
-                                }else if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==true)
-                                {
-                                    numbytes=send(sock->fds[i].fd,"Password already used",22,0);
-                                    break;
-                                }
-                            }
-
-                            if(sock->verified[i]==false)
-                            {
-                                if((numbytes=send(sock->fds[i].fd,"Wrong Password",14,0))<=0)
-                                printf("error: %s\n",strerror(errno));
-                                sock->fds[i].fd=-1;
-                                //close(sock->fds[i].fd);
-                            }
-
+                            login_user(i,sock,buf,pasw);
+                      
                         }else{
                             if(i==j) continue;
 
@@ -311,4 +285,50 @@ char* add_name(char* buf,char* login)
     free(temp);
 
     return buf;
+}
+
+void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
+{
+    int numbytes;
+    for(int k=0;k<200;k++)
+    {
+        if(pasw[k].pass==NULL)
+        continue;
+
+        if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==false)
+        {
+            printf("found the right password\n");
+            sock->verified[index]=true;
+            if((numbytes=send(sock->fds[index].fd,"Access Provided",15,0))<=0)
+            printf("error :%s\n",strerror(errno));
+
+            pasw[k].used=true;
+            sock->login_cred[index]=(char*)malloc(sizeof(char)*(strlen(pasw[k].pass)+1));
+            strcpy(sock->login_cred[index],pasw[k].pass);
+            printf("made it till here\n");
+            break;
+        }else if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==true)
+        {
+            numbytes=send(sock->fds[index].fd,"Password already used",22,0);
+            break;
+        }
+    }
+    if(sock->verified[index]==false)
+    {
+       if((numbytes=send(sock->fds[index].fd,"Wrong Password",14,0))<=0)
+       printf("error: %s\n",strerror(errno));
+       sock->fds[index].fd=-1;
+       //close(sock->fds[i].fd);
+    }
+    
+}
+
+void password_storage(passwords* pasw,int size)
+{
+    pasw[0].pass=(char*)malloc(sizeof(char)*(strlen("user1,123")+1));
+    strcpy(pasw[0].pass,"user1,123");
+    pasw[0].used=false;
+    pasw[1].pass=(char*)malloc(sizeof(char)*(strlen("user2,345")+1));
+    strcpy(pasw[1].pass,"user2,345");
+    pasw[1].used=false;
 }
