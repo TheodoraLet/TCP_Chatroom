@@ -50,6 +50,7 @@ typedef struct sock_info{
     bool* verified;
     char** login_cred;
     bool* pending;
+    bool * registered;
 
 }sock_info;
 
@@ -61,8 +62,10 @@ typedef struct passwords
 
 char* add_name(char* buf,char* login);
 void login_user(int index,sock_info* sock,char* buf,passwords* pasw);
-void password_storage(passwords* pasw,int size);
+int password_storage(passwords* pasw);
 void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw);
+int check_registered(char* buf,sock_info* sock,passwords* pasw);
+void register_user(int i,char* buf,sock_info* sock,passwords* pasw);
 
 int main(void)
 {
@@ -82,10 +85,19 @@ int main(void)
     sock->verified=(bool*)malloc(sizeof(bool)*200);
     sock->login_cred=(char**)malloc(sizeof(char*)*200);
     sock->pending=(bool*)malloc(sizeof(bool)*200);
+    sock->registered=(bool*)malloc(sizeof(bool)*200);
     memset(sock->verified,false,sizeof(sock->verified));
     memset(sock->pending,false,sizeof(sock->pending));
+    memset(sock->registered,false,sizeof(sock->registered));
     passwords* pasw=(passwords*)malloc(sizeof(passwords)*200);
-    password_storage(pasw,200);
+    password_storage(pasw);
+    for(int i=0;i<200;i++)
+    {
+        if(pasw[i].pass==NULL)
+        continue;
+
+        printf("%s\n",pasw[i].pass);
+    }
    
 
     memset(&hints, 0, sizeof hints);
@@ -235,8 +247,10 @@ int main(void)
                             login_user(i,sock,buf,pasw);
                             sock->pending[i]=false;
                             printf("called login\n");
-                        }
-                        else if(sock->verified[i]==false)
+                        }else if(sock->registered[i]==true)
+                        {
+                            register_user(i,buf,sock,pasw);
+                        }else if(sock->verified[i]==false)
                         {
                             printf("got inside verified\n");
                             if( memcmp(buf,"login",strlen("login"))==0)
@@ -246,6 +260,7 @@ int main(void)
                             else if(memcmp(buf,"register",strlen("register"))==0)
                             {
                                 printf("register\n");
+                                sock->registered[i]=true;
                             }
 
                         }else{
@@ -295,7 +310,7 @@ void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
             break;
         }else if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==true)
         {
-            numbytes=send(sock->fds[index].fd,"Password already used",22,0);
+            numbytes=send(sock->fds[index].fd,"Password already used",21,0);
             break;
         }
     }
@@ -303,13 +318,13 @@ void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
     {
        if((numbytes=send(sock->fds[index].fd,"Wrong Password",14,0))<=0)
        printf("error: %s\n",strerror(errno));
-       sock->fds[index].fd=-1;
+       //sock->fds[index].fd=-1;
        //close(sock->fds[i].fd);
     }
     
 }
 
-void password_storage(passwords* pasw,int size)
+int password_storage(passwords* pasw)
 {
     pasw[0].pass=(char*)malloc(sizeof(char)*(strlen("user1,123")+1));
     strcpy(pasw[0].pass,"user1,123");
@@ -320,6 +335,8 @@ void password_storage(passwords* pasw,int size)
     pasw[2].pass=(char*)malloc(sizeof(char)*(strlen("user3,123")+1));
     strcpy(pasw[2].pass,"user3,123");
     pasw[2].used=false;
+
+    return 3;
 }
 
 void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw)
@@ -352,4 +369,64 @@ void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw)
     }
     }
     memset(buf,'\0',sizeof(char)*(MAXDATASIZE));
+}
+
+
+int check_registered(char* buf,sock_info* sock,passwords* pasw)
+{
+    char* temp=(char*)malloc(sizeof(char)*strlen(buf)+1);
+    strcpy(temp,buf);
+    char* token=strtok(temp,",");
+    int k=0;
+    while(token!=NULL)
+    {
+        k++;
+        token=strtok(NULL,",");
+    }
+
+    if(k!=2)
+    {
+        free(temp);
+        return -1;
+    }
+
+    printf("temp is %s\n",temp);
+    int numbytes=0;
+    for(int i=0;i<200;i++)
+    {
+        if(pasw[i].pass==NULL)
+        continue;
+
+        if(memcmp(temp,pasw[i].pass,strlen(temp))==0)
+        {
+            return -2;
+        }
+    }
+
+    return 0;
+}
+
+void register_user(int i,char* buf,sock_info* sock,passwords* pasw)
+{
+    int numbytes=0;
+    if(check_registered(buf,sock,pasw)==0)
+    {
+        printf("got inside the check 0\n");
+        sock->login_cred[i]=(char*)malloc(sizeof(char)*(strlen(buf)+1));
+        strcpy(sock->login_cred[i],buf);
+        sock->registered[i]=false;
+        sock->verified[i]=true;
+        int index=password_storage(pasw);
+        pasw[index].pass=(char*)malloc(sizeof(char)*(strlen(buf)+1));
+        strcpy(pasw[index].pass,buf);
+        pasw[index].used=true;
+        if((numbytes=send(sock->fds[i].fd,"Access Provided",15,0))<=0)
+        printf("error :%s\n",strerror(errno));
+    }else if(check_registered(buf,sock,pasw)==-1){
+        if((numbytes=send(sock->fds[i].fd,"Type the format user,password",29,0))<=0)
+        printf("error: %s\n",strerror(errno));
+    }else if(check_registered(buf,sock,pasw)==-2){
+        if((numbytes=send(sock->fds[i].fd,"username is already used",24,0))<=0)
+        printf("error: %s\n",strerror(errno));
+    }
 }
