@@ -62,8 +62,8 @@ char* add_name(char* buf,char* login);
 void login_user(int index,sock_info* sock,char* buf,passwords* pasw);
 void password_storage(passwords* pasw);
 void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw);
-int check_registered(char* buf,sock_info* sock,passwords* pasw);
-void register_user(int i,char* buf,sock_info* sock,passwords* pasw);
+int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds);
+void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds);
 void compress_array(sock_info* sock,int* nfds);
 
 int max_users;
@@ -266,10 +266,10 @@ int main(void)
                            sock->pending[i]=false;
                            printf("called login\n");
                            printf("users are %d\n",users);
-                       //}else if(sock->registered[i]==true)
-                       //{
-                       //    register_user(i,buf,sock,pasw);
-                       //    printf("users are %d\n",users);
+                       }else if(sock->registered[i]==true)
+                       {
+                           register_user(i,buf,sock,pasw,nfds);
+                           printf("users are %d\n",users);
                        }else if(sock->verified[i]==false)
                        {
                            printf("got inside verified\n");
@@ -320,8 +320,8 @@ void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
     int numbytes;
     for(int k=0;k<login_users;k++)
     {
-        //if(pasw[k].pass==NULL)
-        //continue;
+        if(pasw[k].pass==NULL)
+        continue;
 
         if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==false)
         {
@@ -394,7 +394,7 @@ void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw)
 }
 
 
-int check_registered(char* buf,sock_info* sock,passwords* pasw)
+int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds)
 {
     char* temp=(char*)malloc(sizeof(char)*strlen(buf)+1);
     strcpy(temp,buf);
@@ -417,6 +417,10 @@ int check_registered(char* buf,sock_info* sock,passwords* pasw)
 
     for(int i=0;i<login_users;i++)
     {
+        printf("inside first if of check\n");
+        if(pasw[i].pass==NULL)
+        continue;
+
         if(memcmp(temp,pasw[i].pass,strlen(temp))==0)
         {
             free(temp);
@@ -424,24 +428,36 @@ int check_registered(char* buf,sock_info* sock,passwords* pasw)
         }
     }
 
+    //if(users==0)
+    //{
+    //    free(temp);
+    //    return 0;
+    //}
+
     if(users>=login_users)
     {
-        for(int i=login_users;i<=users;i++)
+        printf("inside 2nd if of check register\n");
+        for(int i=login_users;i<=users+1;i++)
         {
-            if(memcmp(temp,sock->login_cred[i],strlen(sock->login_cred[i])==0))
+            if(sock->login_cred[i]==NULL)
+            continue;
+
+            //printf("sock login is %s\n",sock->login_cred[i]);
+            if((memcmp(temp,sock->login_cred[i],strlen(temp))==0))
             {
+                printf("found the same registered user\n");
                 free(temp);
                 return -2;
             }
         }
     }
-
+    //printf("first sock login is %s\n",sock->login_cred[1]);
     free(temp);
 
     return 0;
 }
 
-void register_user(int i,char* buf,sock_info* sock,passwords* pasw)
+void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds)
 {
     int numbytes=0;
     if(users+1>=(max_users))
@@ -455,22 +471,25 @@ void register_user(int i,char* buf,sock_info* sock,passwords* pasw)
         return;
     }
 
-    if(check_registered(buf,sock,pasw)==0)
+    if(check_registered(buf,sock,pasw,nfds)==0)
     {
         printf("got inside the check 0\n");
         sock->login_cred[i]=(char*)malloc(sizeof(char)*(strlen(buf)+1));
         strcpy(sock->login_cred[i],buf);
         sock->registered[i]=false;
         sock->verified[i]=true;
+
+        if(users!=0)
         users++;
+
         if((numbytes=send(sock->fds[i].fd,"Access Provided",15,0))<=0)
         printf("error :%s\n",strerror(errno));
-    }else if(check_registered(buf,sock,pasw)==-1){
+    }else if(check_registered(buf,sock,pasw,nfds)==-1){
         if((numbytes=send(sock->fds[i].fd,"Type the format user,password",29,0))<=0)
         printf("error: %s\n",strerror(errno));
         sock->fds[i].fd=-1;
         compress_aray=true;
-    }else if(check_registered(buf,sock,pasw)==-2){
+    }else if(check_registered(buf,sock,pasw,nfds)==-2){
         if((numbytes=send(sock->fds[i].fd,"username is already used",24,0))<=0)
         printf("error: %s\n",strerror(errno));
         sock->fds[i].fd=-1;
@@ -490,7 +509,7 @@ void compress_array(sock_info* sock,int* nfds)
             int last_index=0;
             if(sock->fds[i].fd==-1)
             {
-                for(int j=i;j<*nfds-1;j++)
+                for(int j=i;j<=*nfds-1;j++)
                 {
                     sock->con_info[j]=sock->con_info[j+1];
                     sock->fds[j].fd=sock->fds[j+1].fd;
