@@ -438,12 +438,6 @@ int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds)
         }
     }
 
-    //if(users==0)
-    //{
-    //    free(temp);
-    //    return 0;
-    //}
-
     if(users>=login_users)
     {
         printf("inside 2nd if of check register\n");
@@ -546,19 +540,7 @@ void compress_array(sock_info* sock,int* nfds)
                 (*nfds)--;
             }
         }
-        //for(int k=nfds-1;k<initial_nfds-nfds;k++)
-        //{
-        //    printf("inside the free of compress array\n");
-        //    if(sock->login_cred[k]!=NULL && sock->con_info[k].ai_addr!=NULL)
-        //    {
-        //        free(sock->login_cred[k]);
-        //        free(sock->con_info[k].ai_addr);
-        //        sock->verified[k]=false;
-        //        sock->pending[k]=false;
-        //        sock->registered[k]=false;
-        //        //sock->fds[k].fd=-1;
-        //    }
-        //}
+        
         printf("nfds is %d\n",*nfds);
     }
 }
