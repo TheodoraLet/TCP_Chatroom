@@ -75,7 +75,12 @@ int main(void)
 {
     printf("enter the number of people the chat can have\n");
     scanf("%d",&max_users);
-    printf("after scanf\n");
+    if(max_users<login_users)
+    {
+        printf("login users >max users, Change settings\n");
+        exit(1);
+
+    }
 
     int listen_fd=-1; int numbytes;  // listen on sock_fd, new connection on new_fd
     struct addrinfo hints, *servinfo, *p;
@@ -87,18 +92,23 @@ int main(void)
     int rv;
     char* buf=(char*)malloc(sizeof(char)*MAXDATASIZE);
     sock_info* sock=(sock_info*)malloc(sizeof(sock_info));
-    sock->fds=(struct pollfd*)malloc(sizeof(struct pollfd)*(2*max_users)+1);
+    sock->fds=(struct pollfd*)malloc(sizeof(struct pollfd)*(max_users+BACKLOG+1));
     int new_fd=-1;
-    sock->con_info=(struct addrinfo*)malloc(sizeof(struct addrinfo)*((2*max_users)+1));
-    sock->verified=(bool*)malloc(sizeof(bool)*((2*max_users)+1));
-    sock->login_cred=(char**)malloc(sizeof(char*)*((2*max_users)+1));
-    sock->pending=(bool*)malloc(sizeof(bool)*((2*max_users)+1));
-    sock->registered=(bool*)malloc(sizeof(bool)*((2*max_users)+1));
+    sock->con_info=(struct addrinfo*)malloc(sizeof(struct addrinfo)*(max_users+BACKLOG+1));
+    sock->verified=(bool*)malloc(sizeof(bool)*(max_users+BACKLOG+1));
+    sock->login_cred=(char**)malloc(sizeof(char*)*(max_users+BACKLOG+1));
+    sock->pending=(bool*)malloc(sizeof(bool)*(max_users+BACKLOG+1));
+    sock->registered=(bool*)malloc(sizeof(bool)*(max_users+BACKLOG+1));
     memset(sock->verified,false,sizeof(sock->verified));
     memset(sock->pending,false,sizeof(sock->pending));
     memset(sock->registered,false,sizeof(sock->registered));
     passwords* pasw=(passwords*)malloc(sizeof(passwords)*(login_users));
     password_storage(pasw);
+    if(users!=login_users-1)
+    {
+        printf("login users number different from storage, check password_storage function\n");
+        exit(1);
+    }
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -460,7 +470,8 @@ int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds)
 void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds)
 {
     int numbytes=0;
-    if(users+1>=(max_users))
+    static bool first_user=true;
+    if(users+1>=(max_users) && users!=0)
     {
         printf("first if of register\n");
         if((numbytes=send(sock->fds[i].fd,"Max number of chat users",24,0))<=0)
@@ -479,8 +490,11 @@ void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds)
         sock->registered[i]=false;
         sock->verified[i]=true;
 
-        if(users!=0)
+        if(users!=0 || max_users==1 || !first_user) 
         users++;
+
+        if(login_users==0 && users==0)
+        first_user=false;
 
         if((numbytes=send(sock->fds[i].fd,"Access Provided",15,0))<=0)
         printf("error :%s\n",strerror(errno));
