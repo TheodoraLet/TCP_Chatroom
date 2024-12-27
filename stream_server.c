@@ -59,12 +59,15 @@ typedef struct passwords
 }passwords;
 
 char* add_name(char* buf,char* login);
-void login_user(int index,sock_info* sock,char* buf,passwords* pasw);
+void login_user(int index,sock_info* sock,char* buf,passwords* pasw,int nfds);
 void password_storage(passwords* pasw);
 void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw);
-int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds);
+int check_registered(char* buf,sock_info* sock,passwords* pasw);
 void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds);
 void compress_array(sock_info* sock,int* nfds);
+void active_users(sock_info* sock, int nfds,int index);
+void new_user_enter(int i, sock_info* sock,int nfds);
+void user_left(int i,sock_info* sock,int nfds);
 
 int max_users;
 int users=0;
@@ -74,7 +77,12 @@ int login_users=3;
 int main(void)
 {
     printf("enter the number of people the chat can have\n");
-    scanf("%d",&max_users);
+    char b_user[20];
+
+    fgets(b_user,20,stdin);
+
+    max_users=atoi(b_user);
+    printf("max_users are %d\n",max_users);
     if(max_users<login_users)
     {
         printf("login users >max users, Change settings\n");
@@ -108,6 +116,12 @@ int main(void)
     {
         printf("login users number different from storage, check password_storage function\n");
         exit(1);
+    }
+
+    for(int i=0;i<max_users+BACKLOG+1;i++)
+    {
+        sock->con_info[i].ai_addr=NULL;
+        sock->login_cred[i]=NULL;
     }
 
     memset(&hints, 0, sizeof hints);
@@ -191,7 +205,7 @@ int main(void)
                 //printf("got inside listen\n");
                 
                 do{
-                    socklen_t sin_size=sizeof(struct sockaddr_storage);
+                    socklen_t sin_size=sizeof(struct sockaddr); //sizeof(struct sockaddr_storage);
                     sock->con_info[nfds].ai_addr=(struct sockaddr*)malloc(sizeof(struct sockaddr));
                     sock->con_info[nfds].ai_family=AF_INET;
                     sock->con_info[nfds].ai_socktype=SOCK_STREAM;
@@ -204,6 +218,7 @@ int main(void)
                             perror("accept failed");
                         }
 
+                        free(sock->con_info[nfds].ai_addr);
                         printf("got out of accept\n");
                         break;
                     }
@@ -239,8 +254,8 @@ int main(void)
                     close(sock->fds[i].fd);
                     sock->fds[i].fd=-1;
                     compress_aray=true;
-                    sock->verified[i]=false;
-                    sock->pending[i]=false;
+                    //sock->verified[i]=false;
+                    //sock->pending[i]=false;
                     printf("sock pending is false\n");
                     if(sock->login_cred[i]==NULL)
                     {
@@ -272,7 +287,7 @@ int main(void)
                        {
                            printf("got inside pending\n");
                            printf("with buf is %s\n",buf);
-                           login_user(i,sock,buf,pasw);
+                           login_user(i,sock,buf,pasw,nfds);
                            sock->pending[i]=false;
                            printf("called login\n");
                            printf("users are %d\n",users);
@@ -325,7 +340,7 @@ char* add_name(char* buf,char* login)
     return buf;
 }
 
-void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
+void login_user(int index,sock_info* sock,char* buf,passwords* pasw,int nfds)
 {
     int numbytes;
     for(int k=0;k<login_users;k++)
@@ -340,10 +355,18 @@ void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
             if((numbytes=send(sock->fds[index].fd,"Access Provided",15,0))<=0)
             printf("error :%s\n",strerror(errno));
 
+            int rc;
+            if((rc=send(sock->fds[index].fd," ",1,0))!=1)
+            printf("error :%s\n",strerror(errno));
+
+
             pasw[k].used=true;
-            sock->login_cred[index]=(char*)malloc(sizeof(char)*(strlen(pasw[k].pass)+1));
-            strcpy(sock->login_cred[index],pasw[k].pass);
+            sock->login_cred[index]=(char*)malloc(sizeof(char)*(strlen(pasw[k].pass))+1);
+            memcpy(sock->login_cred[index],pasw[k].pass,strlen(pasw[k].pass)+1);
             printf("made it till here\n");
+            printf("sizeof paws[k].pass is %ld\n",strlen(pasw[k].pass));
+            active_users(sock,nfds,index);
+            new_user_enter(index,sock,nfds);
             break;
         }else if(memcmp(buf,pasw[k].pass,strlen(pasw[k].pass))==0 && pasw[k].used==true)
         {
@@ -367,19 +390,20 @@ void login_user(int index,sock_info* sock,char* buf,passwords* pasw)
 void password_storage(passwords* pasw)
 {
     pasw[users].pass=(char*)malloc(sizeof(char)*(strlen("user1,123")+1));
-    strcpy(pasw[users].pass,"user1,123");
+    memcpy(pasw[users].pass,"user1,123",strlen("user1,123")+1);
     pasw[(users)++].used=false;
     pasw[users].pass=(char*)malloc(sizeof(char)*(strlen("user2,345")+1));
-    strcpy(pasw[users].pass,"user2,345");
+    memcpy(pasw[users].pass,"user2,345",strlen("user2,345")+1);
     pasw[(users)++].used=false;
     pasw[users].pass=(char*)malloc(sizeof(char)*(strlen("user3,123")+1));
-    strcpy(pasw[users].pass,"user3,123");
+    memcpy(pasw[users].pass,"user3,123",strlen("user3,123")+1);
     pasw[(users)].used=false;
 }
 
 void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw)
 {
-    strcpy(buf,add_name(buf,sock->login_cred[index]));
+    char* res=add_name(buf,sock->login_cred[index]);
+    memcpy(buf,res,strlen(res));
     for(int j=1;j<nfds;j++)
     {
     if(index==j) continue;
@@ -404,7 +428,7 @@ void send_to_all(int index,char* buf,sock_info* sock,int nfds,passwords* pasw)
 }
 
 
-int check_registered(char* buf,sock_info* sock,passwords* pasw,int nfds)
+int check_registered(char* buf,sock_info* sock,passwords* pasw)
 {
     char* temp=(char*)malloc(sizeof(char)*strlen(buf)+1);
     strcpy(temp,buf);
@@ -476,7 +500,7 @@ void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds)
         return;
     }
 
-    if(check_registered(buf,sock,pasw,nfds)==0)
+    if(check_registered(buf,sock,pasw)==0)
     {
         printf("got inside the check 0\n");
         sock->login_cred[i]=(char*)malloc(sizeof(char)*(strlen(buf)+1));
@@ -492,12 +516,20 @@ void register_user(int i,char* buf,sock_info* sock,passwords* pasw,int nfds)
 
         if((numbytes=send(sock->fds[i].fd,"Access Provided",15,0))<=0)
         printf("error :%s\n",strerror(errno));
-    }else if(check_registered(buf,sock,pasw,nfds)==-1){
+
+        int rc;
+        if((rc=send(sock->fds[i].fd," ",1,0))!=1)
+        printf("error :%s\n",strerror(errno));
+
+        active_users(sock,nfds,i);
+        new_user_enter(i,sock,nfds);
+
+    }else if(check_registered(buf,sock,pasw)==-1){
         if((numbytes=send(sock->fds[i].fd,"Type the format user,password",29,0))<=0)
         printf("error: %s\n",strerror(errno));
         sock->fds[i].fd=-1;
         compress_aray=true;
-    }else if(check_registered(buf,sock,pasw,nfds)==-2){
+    }else if(check_registered(buf,sock,pasw)==-2){
         if((numbytes=send(sock->fds[i].fd,"username is already used",24,0))<=0)
         printf("error: %s\n",strerror(errno));
         sock->fds[i].fd=-1;
@@ -517,6 +549,15 @@ void compress_array(sock_info* sock,int* nfds)
             int last_index=0;
             if(sock->fds[i].fd==-1)
             {
+                user_left(i,sock,*nfds);
+
+                    free(sock->con_info[i].ai_addr);
+                    free(sock->login_cred[i]);
+                    sock->pending[i]=false;
+                    sock->verified[i]=false;
+                    sock->registered[i]=false;
+                    printf("inside compress array first if\n");
+
                 for(int j=i;j<=*nfds-1;j++)
                 {
                     sock->con_info[j]=sock->con_info[j+1];
@@ -530,8 +571,8 @@ void compress_array(sock_info* sock,int* nfds)
                 
                 if(last_index!=0)
                 {
-                    if(sock->con_info[last_index].ai_addr!=NULL) sock->con_info[last_index].ai_addr=NULL;
-                    if(sock->login_cred[last_index]!=NULL) sock->login_cred[last_index]=NULL;
+                    sock->con_info[last_index].ai_addr=NULL;
+                    sock->login_cred[last_index]=NULL;
                     sock->pending[last_index]=false;
                     sock->verified[last_index]=false;
                     sock->registered[last_index]=false;
@@ -543,4 +584,118 @@ void compress_array(sock_info* sock,int* nfds)
         
         printf("nfds is %d\n",*nfds);
     }
+}
+
+void active_users(sock_info* sock, int nfds,int index)
+{
+    char** status=(char**)malloc(sizeof(char*)*max_users);
+    int k=0;
+    for(int j=1;j<nfds;j++)
+    {
+        char* temp=(char*)malloc(sizeof(char)*(strlen(sock->login_cred[j])));
+        memcpy(temp,sock->login_cred[j],strlen(sock->login_cred[j]));
+        temp=strtok(temp,",");
+        status[k]=(char*)malloc(sizeof(char)*(strlen(temp)+1));
+        memcpy(status[k++],temp,strlen(temp));
+        free(temp);
+    }
+
+   
+    int rc=send(sock->fds[index].fd,"active users are:",17,0);
+    if(rc<0)
+    {
+       perror("recv");
+       printf("error: %d\n",errno);
+    }else if(rc==0)
+    {
+       printf("client has closed\n");
+       sock->fds[index].fd=-1;
+       compress_aray=true;
+    }   int i=0;
+    while(i<k)
+    {
+        rc=send(sock->fds[index].fd,status[i++],strlen(status[i]),0);
+        rc=send(sock->fds[index].fd," ",1,0);
+        if(rc<0)
+        {
+           perror("recv");
+           printf("error: %d\n",errno);
+        }else if(rc==0)
+        {
+           printf("client has closed\n");
+           sock->fds[index].fd=-1;
+           compress_aray=true;
+        }
+    }
+
+    for(int w=0;w<k;w++)
+    free(status[w]);
+
+    free(status);
+
+}
+
+void new_user_enter(int i, sock_info* sock,int nfds)
+{
+    char* t=" has entered the chat";
+    char* temp=(char*)malloc(sizeof(char)*(strlen(sock->login_cred[i])+strlen(t)+1));
+    strcpy(temp,sock->login_cred[i]);
+    temp=strtok(temp,",");
+    strcat(temp,t);
+
+    for(int j=1;j<nfds;j++)
+    {
+        if(i==j)
+        continue;
+
+        int numbytes=send(sock->fds[j].fd,temp,strlen(temp)+1,0);
+        if(numbytes<0)
+        {
+           perror("recv");
+           printf("error: %d\n",errno);
+        }else if(numbytes==0)
+        {
+           printf("client has closed\n");
+           sock->fds[j].fd=-1;
+           compress_aray=true;
+        }
+    }
+
+    free(temp);
+
+}
+
+void user_left(int i,sock_info* sock,int nfds)
+{
+    if(sock->verified[i]==true)
+    {
+        char* t=" has left the chat";
+        char* temp=(char*)malloc(sizeof(char)*(strlen(sock->login_cred[i])+strlen(t)+1));
+        strcpy(temp,sock->login_cred[i]);
+        temp=strtok(temp,",");
+        strcat(temp,t);
+
+        for(int j=1;j<nfds;j++)
+        {
+            if(i==j)
+            {
+                continue;
+            }
+
+            int numbytes=send(sock->fds[j].fd,temp,strlen(temp)+1,0);
+            if(numbytes<0)
+            {
+                perror("recv");
+               printf("error: %d\n",errno);
+            }else if(numbytes==0)
+            {
+               printf("client has closed\n");
+               sock->fds[j].fd=-1;
+               compress_aray=true;
+            }
+        }
+
+        free(temp);
+    }
+
 }

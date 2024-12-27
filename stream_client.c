@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <sys/poll.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
 #include <arpa/inet.h>
 
@@ -82,12 +83,24 @@ int main(int argc, char *argv[])
 
     freeaddrinfo(servinfo); // all done with this structure
 
+    //FILE* f;
+    //if((f=fopen("/home/theo/open_source/tcp_ip/client1.txt","rb"))==NULL)
+    //printf("cannot ope file\n");
+    //int filen;
+    //if((filen=fileno(f))==-1)
+    //printf("error :%s\n",strerror(errno));
+//
+    // fds[0].fd=filen;
+    // fds[0].events=POLLIN;
+
     fds[0].fd=STDIN_FILENO;
     fds[0].events=POLLIN;
 
     fds[1].fd=sockfd;
     fds[1].events= POLLIN;
-    
+//
+    //bool send_flag=true;
+    //bool fget_flag=true;
 
     while(1)
     {
@@ -118,6 +131,7 @@ int main(int argc, char *argv[])
         }
        
     }
+
 
     close(sockfd);
 
